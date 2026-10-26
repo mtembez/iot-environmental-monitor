@@ -1,0 +1,19 @@
+[Unit]
+Description=IoT Environmental Telemetry Serial Ingestion Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=lion
+WorkingDirectory=/home/lion/projects/iot-environmental-monitor/daemon
+ExecStart=/usr/bin/python3 /home/lion/projects/iot-environmental-monitor/daemon/ingestion_daemon.py --port /dev/ttyACM0 --url http://127.0.0.1:8000/api/v1/sensors/ingest/
+Restart=always
+RestartSec=5s
+Environment=PYTHONUNBUFFERED=1
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

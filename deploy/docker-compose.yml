@@ -86,5 +86,16 @@ services:
     depends_on:
       - backend
 
+  sensor_node:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: enviro_sensor_mock_node
+    command: python -u /app/daemon/ingestion_daemon.py --mock --url http://backend:8000/api/v1/sensors/ingest/ --key enviro-secret-token
+    volumes:
+      - ../daemon:/app/daemon:ro
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:

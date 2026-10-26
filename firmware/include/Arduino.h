@@ -20,7 +20,9 @@ typedef uint8_t byte;
 typedef bool boolean;
 
 inline unsigned long millis(void) { return 0; }
+inline unsigned long micros(void) { return 0; }
 inline void delay(unsigned long ms) { (void)ms; }
+inline void delayMicroseconds(unsigned int us) { (void)us; }
 inline void pinMode(uint8_t pin, uint8_t mode) { (void)pin; (void)mode; }
 inline int digitalRead(uint8_t pin) { (void)pin; return 0; }
 inline void digitalWrite(uint8_t pin, uint8_t val) { (void)pin; (void)val; }

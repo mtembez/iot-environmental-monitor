@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>IoT Environmental Telemetry & ML Anomaly Hub (Live Preview)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg-primary: #090d16;
+      --bg-card: #151f38;
+      --border-color: #1e293b;
+      --accent-cyan: #00f2fe;
+      --accent-green: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-red: #ef4444;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: var(--bg-primary); color: var(--text-main); padding: 2rem 1.5rem; min-height: 100vh; }
+    .container { max-width: 1300px; margin: 0 auto; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+    .badge { padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
+    .badge-ok { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.4); }
+    .badge-err { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.4); animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; margin-bottom: 2rem; }
+    .card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.5rem; }
+    .val { font-size: 2.25rem; font-weight: 700; font-family: monospace; }
+    .lbl { font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; display: flex; justify-content: space-between; }
+    .chart-box { height: 240px; width: 100%; }
+    polyline { fill: none; stroke: var(--accent-cyan); stroke-width: 2.5; stroke-linecap: round; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1 style="font-size: 1.75rem; font-weight: 700;">IoT Environmental Telemetry</h1>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
+          Arduino C++ Firmware • Python Ingestion Daemon • Django Channels (ASGI) • Isolation Forest ML
+        </p>
+      </div>
+      <div>
+        <span id="ws-badge" class="badge badge-ok">Connecting...</span>
+      </div>
+    </header>
+
+    <div class="grid">
+      <div class="card">
+        <div class="lbl"><span>Temperature</span> <span>🌡️</span></div>
+        <div class="val" id="val-temp">--°C</div>
+        <span id="badge-temp" class="badge badge-ok" style="margin-top: 0.5rem; display: inline-block;">Nominal</span>
+      </div>
+      <div class="card">
+        <div class="lbl"><span>Relative Humidity</span> <span>💧</span></div>
+        <div class="val" id="val-hum">--%</div>
+        <span id="badge-hum" class="badge badge-ok" style="margin-top: 0.5rem; display: inline-block;">Nominal</span>
+      </div>
+      <div class="card">
+        <div class="lbl"><span>Light Intensity</span> <span>☀️</span></div>
+        <div class="val" id="val-light">-- Lux</div>
+        <span class="badge badge-ok" style="margin-top: 0.5rem; display: inline-block;">Calibrated</span>
+      </div>
+      <div class="card">
+        <div class="lbl"><span>PIR Motion</span> <span>🏃</span></div>
+        <div class="val" id="val-motion">IDLE</div>
+        <span id="badge-motion" class="badge badge-ok" style="margin-top: 0.5rem; display: inline-block;">Nominal</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 2rem;">
+      <h3 style="margin-bottom: 1rem;">Live Telemetry Timeline (Temperature °C)</h3>
+      <div class="chart-box">
+        <svg id="timeline-svg" viewBox="0 0 800 200" style="width: 100%; height: 100%;">
+          <line x1="30" y1="30" x2="770" y2="30" stroke="#1e293b" stroke-dasharray="4 4" />
+          <line x1="30" y1="100" x2="770" y2="100" stroke="#1e293b" stroke-dasharray="4 4" />
+          <line x1="30" y1="170" x2="770" y2="170" stroke="#1e293b" />
+          <polyline id="sparkline" points="" />
+          <g id="markers"></g>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const history = [];
+    const maxPoints = 30;
+
+    function renderSparkline() {
+      if (history.length < 2) return;
+      const svgW = 800, svgH = 200, pad = 35;
+      const temps = history.map(d => d.temperature);
+      const minT = Math.min(...temps, 15);
+      const maxT = Math.max(...temps, 40);
+
+      const pts = history.map((d, i) => {
+        const x = pad + (i / (history.length - 1)) * (svgW - 2 * pad);
+        const y = svgH - pad - ((d.temperature - minT) / Math.max(maxT - minT, 1)) * (svgH - 2 * pad);
+        return `${x},${y}`;
+      }).join(' ');
+
+      document.getElementById('sparkline').setAttribute('points', pts);
+
+      const markersG = document.getElementById('markers');
+      markersG.innerHTML = '';
+      history.forEach((d, i) => {
+        if (d.is_anomaly || d.temperature > 35) {
+          const x = pad + (i / (history.length - 1)) * (svgW - 2 * pad);
+          const y = svgH - pad - ((d.temperature - minT) / Math.max(maxT - minT, 1)) * (svgH - 2 * pad);
+          const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          circle.setAttribute('cx', x);
+          circle.setAttribute('cy', y);
+          circle.setAttribute('r', '6');
+          circle.setAttribute('fill', '#ef4444');
+          markersG.appendChild(circle);
+        }
+      });
+    }
+
+    function updateTelemetry(data) {
+      document.getElementById('val-temp').innerText = (data.temperature !== undefined ? data.temperature.toFixed(1) : '--') + '°C';
+      document.getElementById('val-hum').innerText = (data.humidity !== undefined ? data.humidity.toFixed(1) : '--') + '%';
+      document.getElementById('val-light').innerText = (data.light_lux !== undefined ? data.light_lux.toFixed(0) : '--') + ' Lux';
+      document.getElementById('val-motion').innerText = data.motion_detected ? 'ACTIVE' : 'IDLE';
+
+      const isAnom = data.is_anomaly || data.temperature > 35;
+      const badgeT = document.getElementById('badge-temp');
+      badgeT.className = 'badge ' + (isAnom ? 'badge-err' : 'badge-ok');
+      badgeT.innerText = isAnom ? 'Anomaly' : 'Nominal';
+
+      history.push(data);
+      if (history.length > maxPoints) history.shift();
+      renderSparkline();
+    }
+
+    function initWebSocket() {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host || 'localhost:8000';
+      const ws = new WebSocket(`${proto}//${host}/ws/sensors/stream/`);
+
+      ws.onopen = () => {
+        const badge = document.getElementById('ws-badge');
+        badge.innerText = 'WebSocket Stream Connected';
+        badge.className = 'badge badge-ok';
+      };
+
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.type === 'telemetry.update') {
+            updateTelemetry(msg.payload);
+          }
+        } catch (e) {}
+      };
+
+      ws.onclose = () => {
+        const badge = document.getElementById('ws-badge');
+        badge.innerText = 'Reconnecting WebSocket...';
+        badge.className = 'badge badge-err';
+        setTimeout(initWebSocket, 3000);
+      };
+    }
+
+    initWebSocket();
+  </script>
+</body>
+</html>

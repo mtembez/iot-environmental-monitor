@@ -16,10 +16,10 @@ static volatile uint32_t g_motion_trigger_count = 0;
 static volatile unsigned long g_last_motion_timestamp = 0;
 static volatile bool g_motion_flag = false;
 
-// Interrupt Service Routine for PIR motion sensor
+// Interrupt Service Routine for PIR motion sensor (Pin 2 / INT0)
 void handle_pir_interrupt() {
     unsigned long now = millis();
-    // Debounce window: 150ms
+    // Hardware debounce window: 150ms
     if (now - g_last_motion_timestamp > 150) {
         g_motion_trigger_count++;
         g_motion_flag = true;
@@ -27,15 +27,74 @@ void handle_pir_interrupt() {
     }
 }
 
-// DHT11 reader: reads humidity (pct) and temp (celsius)
+/**
+ * Real 1-Wire DHT11 Bit-Bang Driver with microsecond pulse timing.
+ * 40-bit transmission: [Hum_Int, Hum_Dec, Temp_Int, Temp_Dec, Checksum]
+ */
 bool read_dht11(float* out_temp, float* out_hum) {
     if (!out_temp || !out_hum) return false;
+
+#ifdef ARDUINO
+    uint8_t data[5] = {0, 0, 0, 0, 0};
+
+    // Step 1: Send Start Signal (Host pulls LOW >= 18ms)
+    pinMode(DHT_PIN, OUTPUT);
+    digitalWrite(DHT_PIN, LOW);
+    delay(18);
+    digitalWrite(DHT_PIN, HIGH);
+    delayMicroseconds(30);
+
+    // Step 2: Listen for Sensor Response Pulse (80us LOW + 80us HIGH)
+    pinMode(DHT_PIN, INPUT_PULLUP);
     
-    // In real hardware, strict 1-wire timing sequence executes here.
-    // Default baseline calibrated read:
+    unsigned long timeout = 10000;
+    while (digitalRead(DHT_PIN) == HIGH) {
+        if (--timeout == 0) return false; // Bus timeout
+    }
+    timeout = 10000;
+    while (digitalRead(DHT_PIN) == LOW) {
+        if (--timeout == 0) return false;
+    }
+    timeout = 10000;
+    while (digitalRead(DHT_PIN) == HIGH) {
+        if (--timeout == 0) return false;
+    }
+
+    // Step 3: Read 40 Data Bits (5 Bytes)
+    for (int i = 0; i < 40; i++) {
+        timeout = 10000;
+        while (digitalRead(DHT_PIN) == LOW) {
+            if (--timeout == 0) return false;
+        }
+
+        unsigned long pulse_start = micros();
+        timeout = 10000;
+        while (digitalRead(DHT_PIN) == HIGH) {
+            if (--timeout == 0) return false;
+        }
+        unsigned long pulse_len = micros() - pulse_start;
+
+        // HIGH pulse > 40us denotes '1', otherwise '0'
+        if (pulse_len > 40) {
+            data[i / 8] |= (1 << (7 - (i % 8)));
+        }
+    }
+
+    // Step 4: Checksum Validation
+    uint8_t checksum = data[0] + data[1] + data[2] + data[3];
+    if (checksum != data[4]) {
+        return false; // CRC error
+    }
+
+    *out_hum = static_cast<float>(data[0]) + static_cast<float>(data[1]) * 0.1f;
+    *out_temp = static_cast<float>(data[2]) + static_cast<float>(data[3]) * 0.1f;
+    return true;
+#else
+    // Host offline test harness simulation
     *out_temp = 24.5f;
     *out_hum = 58.0f;
     return true;
+#endif
 }
 
 // LDR reader: returns raw 10-bit ADC (0-1023) mapped to estimated lux

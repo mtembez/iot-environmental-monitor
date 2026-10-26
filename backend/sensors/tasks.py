@@ -1,5 +1,19 @@
 import logging
-from celery import shared_task
+
+try:
+    from celery import shared_task
+except ImportError:
+    # Graceful fallback decorator for test environments without celery worker
+    def shared_task(*args, **kwargs):
+        def decorator(func):
+            def delay(*f_args, **f_kwargs):
+                return func(None, *f_args, **f_kwargs)
+            func.delay = delay
+            return func
+        if args and callable(args[0]):
+            return decorator(args[0])
+        return decorator
+
 from .models import SensorReading, AnomalyEvent, AlertThreshold
 from .ml.detector import score_sensor_reading
 
