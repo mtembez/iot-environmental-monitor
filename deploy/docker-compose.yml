@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: enviro_postgres
+    environment:
+      POSTGRES_DB: iot_enviro_db
+      POSTGRES_USER: enviro_user
+      POSTGRES_PASSWORD: enviro_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U enviro_user -d iot_enviro_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: enviro_redis
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: enviro_backend
+    command: >
+      sh -c "python manage.py migrate &&
+             gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers 3"
+    environment:
+      DJANGO_DEBUG: "False"
+      DJANGO_SECRET_KEY: "prod-insecure-iot-secret-key-change-in-env"
+      DJANGO_ALLOWED_HOSTS: "*"
+      DB_ENGINE: "django.db.backends.postgresql"
+      DB_NAME: "iot_enviro_db"
+      DB_USER: "enviro_user"
+      DB_PASSWORD: "enviro_password"
+      DB_HOST: "db"
+      DB_PORT: "5432"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
+      CELERY_ALWAYS_EAGER: "False"
+      SENSOR_INGEST_API_KEY: "enviro-secret-token"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  celery_worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: enviro_celery_worker
+    command: celery -A core worker --loglevel=info --concurrency=2
+    environment:
+      DJANGO_DEBUG: "False"
+      DJANGO_SECRET_KEY: "prod-insecure-iot-secret-key-change-in-env"
+      DB_ENGINE: "django.db.backends.postgresql"
+      DB_NAME: "iot_enviro_db"
+      DB_USER: "enviro_user"
+      DB_PASSWORD: "enviro_password"
+      DB_HOST: "db"
+      DB_PORT: "5432"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/0"
+      CELERY_ALWAYS_EAGER: "False"
+    depends_on:
+      - db
+      - redis
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+    container_name: enviro_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

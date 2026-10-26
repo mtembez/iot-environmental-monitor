@@ -1,0 +1,49 @@
+name: CI Pipeline - IoT Environmental Monitoring
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  firmware-verification:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Firmware Syntax
+        run: |
+          g++ -I firmware/include -fsyntax-only -Wall -Wextra -Werror firmware/src/main.cpp
+
+  daemon-and-ml-verification:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run Daemon Unit Tests (PTY simulation)
+        run: |
+          cd daemon
+          python3 -m py_compile ingestion_daemon.py
+          python3 test_daemon.py
+      - name: Verify ML Anomaly Detector Benchmark
+        run: |
+          cd backend/sensors/ml
+          python3 -m py_compile detector.py train_isolation_forest.py
+          python3 train_isolation_forest.py
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Dependencies & Build Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
