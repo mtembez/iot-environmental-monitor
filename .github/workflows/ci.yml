@@ -15,7 +15,7 @@ jobs:
         run: |
           g++ -I firmware/include -fsyntax-only -Wall -Wextra -Werror firmware/src/main.cpp
 
-  daemon-and-ml-verification:
+  backend-daemon-and-ml:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +33,12 @@ jobs:
           cd backend/sensors/ml
           python3 -m py_compile detector.py train_isolation_forest.py
           python3 train_isolation_forest.py
+      - name: Run Django REST Framework & Channels Test Suite
+        run: |
+          cd backend
+          pip install --no-cache-dir django djangorestframework channels daphne
+          python3 manage.py test sensors
+          python3 sensors/tests/verify_live_pipeline.py
 
   frontend-build:
     runs-on: ubuntu-latest
@@ -45,5 +51,5 @@ jobs:
       - name: Install Dependencies & Build Frontend
         run: |
           cd frontend
-          npm ci
+          npm install
           npm run build
