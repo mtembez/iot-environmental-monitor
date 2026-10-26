@@ -36,7 +36,7 @@ jobs:
       - name: Run Django REST Framework & Channels Test Suite
         run: |
           cd backend
-          pip install --no-cache-dir django djangorestframework channels daphne
+          pip install --no-cache-dir django djangorestframework django-cors-headers channels daphne
           python3 manage.py test sensors
           python3 sensors/tests/verify_live_pipeline.py
 
