@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import MetricCard from './components/MetricCard'
 import SensorTimeline from './components/SensorTimeline'
 import AnomalyHeatmap from './components/AnomalyHeatmap'
 import ThresholdSettings from './components/ThresholdSettings'
+import { useSensorWebSocket } from './hooks/useSensorWebSocket'
 
 export default function App() {
   const [readings, setReadings] = useState([])
@@ -25,27 +26,37 @@ export default function App() {
     { id: 1, node_id: 'iot-enviro-01', anomaly_score: 0.88, description: 'Sudden thermal divergence (+14.2°C)', created_at: new Date().toISOString() },
     { id: 2, node_id: 'iot-enviro-01', anomaly_score: 0.74, description: 'Relative humidity saturation breach (>92%)', created_at: new Date().toISOString() },
   ])
-  const [isConnected, setIsConnected] = useState(true)
 
-  // Fetch telemetry from backend API
-  const fetchTelemetry = async () => {
+  // Live WebSocket Telemetry Dispatcher
+  const handleWebSocketTelemetry = useCallback((data) => {
+    setLatest(data)
+    setReadings((prev) => [data, ...prev.slice(0, 49)])
+  }, [])
+
+  // Live WebSocket Anomaly Alert Dispatcher
+  const handleWebSocketAnomaly = useCallback((alert) => {
+    setAnomalies((prev) => [alert, ...prev.slice(0, 9)])
+  }, [])
+
+  const { isConnected: isWsConnected } = useSensorWebSocket(
+    handleWebSocketTelemetry,
+    handleWebSocketAnomaly
+  )
+
+  // Initial bootstrap hydration from REST API
+  const hydrateInitialData = async () => {
     try {
       const respLatest = await fetch('/api/v1/sensors/latest/')
       if (respLatest.ok) {
         const data = await respLatest.json()
         const nodeLatest = Array.isArray(data) ? data[0] : data
-        if (nodeLatest) {
-          setLatest(nodeLatest)
-          setIsConnected(true)
-        }
+        if (nodeLatest) setLatest(nodeLatest)
       }
 
       const respHistory = await fetch('/api/v1/sensors/readings/?limit=50')
       if (respHistory.ok) {
         const historyData = await respHistory.json()
-        if (historyData.results) {
-          setReadings(historyData.results)
-        }
+        if (historyData.results) setReadings(historyData.results)
       }
 
       const respHeatmap = await fetch('/api/v1/sensors/heatmap/')
@@ -59,16 +70,13 @@ export default function App() {
         const anomList = await respAnom.json()
         setAnomalies(anomList)
       }
-    } catch (err) {
-      // Offline fallback: keep local telemetry active
-      setIsConnected(false)
+    } catch {
+      // Offline graceful degradation
     }
   }
 
   useEffect(() => {
-    fetchTelemetry()
-    const interval = setInterval(fetchTelemetry, 3000)
-    return () => clearInterval(interval)
+    hydrateInitialData()
   }, [])
 
   return (
@@ -85,7 +93,7 @@ export default function App() {
             </span>
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-            Arduino C++ Firmware • Python Daemon • DRF • Isolation Forest ML • React
+            Arduino C++ Firmware • Python Daemon • Django Channels (ASGI) • Celery ML • React WebSockets
           </p>
         </div>
 
@@ -95,11 +103,11 @@ export default function App() {
               width: '10px',
               height: '10px',
               borderRadius: '50%',
-              backgroundColor: isConnected ? 'var(--accent-green)' : 'var(--accent-amber)',
-              boxShadow: isConnected ? '0 0 8px var(--accent-green)' : 'none'
+              backgroundColor: isWsConnected ? 'var(--accent-green)' : 'var(--accent-amber)',
+              boxShadow: isWsConnected ? '0 0 8px var(--accent-green)' : 'none'
             }}></span>
             <span style={{ color: 'var(--text-muted)' }}>
-              {isConnected ? 'Live Telemetry Stream' : 'Fallback Emulation'}
+              {isWsConnected ? 'Live Channels WebSocket Active' : 'WebSocket Reconnecting / Polling Fallback'}
             </span>
           </div>
         </div>

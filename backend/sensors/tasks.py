@@ -61,4 +61,29 @@ def process_sensor_anomaly_task(self, reading_id: int):
         )
         logger.warning(f"ALERT logged for node {reading.node_id}: {desc} (Severity: {severity})")
 
+        # Broadcast real-time anomaly alert event to connected WebSocket clients
+        try:
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    "sensor_telemetry",
+                    {
+                        "type": "anomaly.alert",
+                        "payload": {
+                            "reading_id": reading.id,
+                            "node_id": reading.node_id,
+                            "temperature": reading.temperature,
+                            "humidity": reading.humidity,
+                            "anomaly_score": score,
+                            "description": desc,
+                            "severity": severity,
+                            "created_at": reading.created_at.isoformat() if reading.created_at else None,
+                        }
+                    }
+                )
+        except Exception:
+            pass
+
     return {"reading_id": reading_id, "is_anomaly": is_anomaly, "score": score}

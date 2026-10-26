@@ -48,6 +48,33 @@ class SensorIngestView(views.APIKeyProtectedView if hasattr(views, 'APIKeyProtec
         # Refresh from DB if eager
         reading.refresh_from_db()
 
+        # Broadcast live telemetry over Channels WebSocket group
+        try:
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    "sensor_telemetry",
+                    {
+                        "type": "telemetry.update",
+                        "payload": {
+                            "id": reading.id,
+                            "node_id": reading.node_id,
+                            "temperature": reading.temperature,
+                            "humidity": reading.humidity,
+                            "light_lux": reading.light_lux,
+                            "motion_detected": reading.motion_detected,
+                            "motion_count": reading.motion_count,
+                            "anomaly_score": reading.anomaly_score,
+                            "is_anomaly": reading.is_anomaly,
+                            "created_at": reading.created_at.isoformat() if reading.created_at else None,
+                        }
+                    }
+                )
+        except Exception:
+            pass
+
         return Response(
             {
                 "status": "ingested",

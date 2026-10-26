@@ -31,7 +31,7 @@ services:
     container_name: enviro_backend
     command: >
       sh -c "python manage.py migrate &&
-             gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers 3"
+             daphne -b 0.0.0.0 -p 8000 core.asgi:application"
     environment:
       DJANGO_DEBUG: "False"
       DJANGO_SECRET_KEY: "prod-insecure-iot-secret-key-change-in-env"
