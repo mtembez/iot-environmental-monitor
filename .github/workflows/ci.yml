@@ -38,7 +38,7 @@ jobs:
           cd backend
           pip install --no-cache-dir django djangorestframework django-cors-headers channels daphne
           python3 manage.py test sensors
-          python3 sensors/tests/verify_live_pipeline.py
+          PYTHONPATH=. python3 sensors/tests/verify_live_pipeline.py
 
   frontend-build:
     runs-on: ubuntu-latest

@@ -5,6 +5,12 @@ Executes complete pipeline: Schema Migration -> Ingestion -> ML Scoring -> DB Pe
 
 import os
 import sys
+from pathlib import Path
+
+# Ensure backend root is on sys.path
+BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 os.environ.setdefault('CELERY_ALWAYS_EAGER', 'True')
